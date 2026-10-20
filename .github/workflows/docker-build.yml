@@ -1,5 +1,11 @@
 # 从 fork 源码构建 backend/web 镜像并推送到 GHCR，
 # 供自托管服务器通过 MULTICA_BACKEND_IMAGE / MULTICA_WEB_IMAGE 拉取。
+#
+# 触发规则：
+#   - push 到 main 时，先检测变更路径，只有影响镜像的文件变了才构建
+#     （backend 看 server/，web 看 apps/web/ + packages/，互不牵连）
+#   - 改文档 / CI 配置等不影响镜像的 push 不会触发构建
+#   - 也可在 GitHub 页面手动触发（workflow_dispatch）
 name: docker-build
 
 on:
@@ -15,7 +21,34 @@ permissions:
   packages: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'server/**'
+              - 'Dockerfile'
+              - 'docker/**'
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+              - 'Dockerfile.web'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'package.json'
+              - '.npmrc'
+              - 'turbo.json'
+
   backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +77,8 @@ jobs:
           cache-to: type=gha,mode=max
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
